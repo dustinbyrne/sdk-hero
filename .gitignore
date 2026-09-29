@@ -1,0 +1,51 @@
+# Python environments, bytecode, and build output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Test, lint, and coverage output
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+config.json
+*.pem
+*.key
+
+# Local board data, SQLite sidecars, and session artifacts
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.sync.lock
+backups/
+investigations/
+reports/
+*.jsonl
+*.log
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
