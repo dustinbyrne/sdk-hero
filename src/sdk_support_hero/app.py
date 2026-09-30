@@ -36,6 +36,42 @@ SOURCE_TITLES = {
 }
 
 
+AGENT_LABELS = {
+    "working": "Working",
+    "done": "Done · unread",
+    "idle": "Idle · viewed",
+    "blocked": "Needs input",
+    "unknown": "Status unknown",
+    "unavailable": "Status unavailable",
+}
+
+
+def matches_search(task, query, source_labels=""):
+    query = query.strip().lower()
+    if query.startswith("#") and query[1:].isdecimal():
+        return task["id"] == int(query[1:])
+    labels = [source_labels, task.get("sla", {}).get("badge", "")]
+    if task.get("needs_first_touch"):
+        labels.append("Needs first touch")
+    labels.extend(f"Pi · {AGENT_LABELS[state]}" for state in task.get("agent_states", []))
+    text = " ".join([*(str(task[k]) for k in FIELDS), *labels]).lower()
+    return query in text or query in text.replace(" · ", " ")
+
+
+def needs_first_touch(task, sources):
+    if task["status"] == "done":
+        return False
+    return any(
+        source["kind"] == "issue"
+        and not source.get("error")
+        and str(source["facts"].get("state", "")).lower() == "open"
+        and "last_team_reply_at" in source["facts"]
+        and source["facts"]["last_team_reply_at"] is None
+        and source["facts"].get("needs_team_reply") is True
+        for source in sources
+    )
+
+
 def format_update(entry):
     text = f"{entry['created_at']} · {entry['actor']}\n{entry['summary']}"
     details = entry["details"]
@@ -684,17 +720,11 @@ class Card(ListItem):
                 id=f"priority-{self.task_id}",
                 tooltip="Change priority",
             )
-        agent_labels = {
-            "working": "Working",
-            "done": "Done · unread",
-            "idle": "Idle · viewed",
-            "blocked": "Needs input",
-            "unknown": "Status unknown",
-            "unavailable": "Status unavailable",
-        }
+        if self.values.get("needs_first_touch"):
+            yield Static("Needs first touch", classes="first-touch", markup=False)
         for state in self.values.get("agent_states", []):
             yield Static(
-                f"Pi · {agent_labels[state]}", classes=f"agent-badge agent-{state}", markup=False
+                f"Pi · {AGENT_LABELS[state]}", classes=f"agent-badge agent-{state}", markup=False
             )
         schedule = self.values.get("sla", {})
         if schedule.get("badge"):
@@ -751,6 +781,7 @@ class Board(App):
     .sla-badge { width: auto; height: 1; color: $success; text-style: bold; }
     .sla-badge.soon { color: $warning; }
     .sla-badge.overdue { color: $error; }
+    .first-touch { height: auto; color: $warning; text-style: bold; }
     .agent-badge { height: auto; color: $text-muted; }
     .agent-working { color: $accent; }
     .agent-done { color: $success; text-style: bold; }
@@ -792,7 +823,7 @@ class Board(App):
     def compose(self):
         with Horizontal(id="toolbar"):
             yield Static("Support hero", id="board-title")
-            yield Input(placeholder="Search cards…", id="search")
+            yield Input(placeholder="Search cards, labels, or #number…", id="search")
             yield Button("Filters", id="toggle-filters")
             yield Button("Refresh", id="refresh")
         with Horizontal(id="filters"):
@@ -858,14 +889,7 @@ class Board(App):
         sdk = self.query_one("#sdk-filter", Input).value.lower()
         kind = self.query_one("#kind-filter", Select).value
         priority = self.query_one("#priority-filter", Select).value
-        tasks = [
-            t
-            for t in self.store.tasks()
-            if search in " ".join(str(t[k]) for k in FIELDS).lower()
-            and sdk in t["sdk"].lower()
-            and (kind == "all" or t["kind"] == kind)
-            and (priority == -1 or t["priority"] == priority)
-        ]
+        tasks = self.store.tasks()
         labels = {}
         sources = {}
         for source in self.store.sources():
@@ -877,6 +901,15 @@ class Board(App):
         for task in tasks:
             task["sla"] = card_schedule(task, sources.get(task["id"], []))
             task["agent_states"] = self.agent_states.get(task["id"], [])
+            task["needs_first_touch"] = needs_first_touch(task, sources.get(task["id"], []))
+        tasks = [
+            task
+            for task in tasks
+            if matches_search(task, search, labels.get(task["id"], ""))
+            and sdk in task["sdk"].lower()
+            and (kind == "all" or task["kind"] == kind)
+            and (priority == -1 or task["priority"] == priority)
+        ]
         tasks.sort(key=lambda task: work_key(task, task["sla"]))
         fingerprint = json.dumps([tasks, labels])
         if fingerprint != self.fingerprint:

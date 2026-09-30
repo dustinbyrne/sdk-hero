@@ -22,8 +22,10 @@ Run directly in a Herdr terminal, or use `uv run sdk-hero` without installing. E
 - **Click P0–P3** on a card to choose its priority (P0 highest).
 - **Delete** in card details opens a confirmation. It permanently removes the local card, links, and update history—not the external issue or ticket. Its sources stay excluded from automatic intake, including future rotations. Explicitly linking a source to a new card allows it to refresh again.
 - **+ Add card** in a column requires only a title. Enter adds it.
-- **Search** is always visible; **Filters** reveals SDK, responsibility and priority filters.
+- **Search** matches saved card text and visible labels, such as `needs first touch`, `GitHub`, or `done unread`. Enter `#6` for an exact card-number lookup. Search is case-insensitive and combines with the SDK, responsibility, and priority controls under **Filters**.
 - **Refresh** on the board reads configured external sources in the background. **Refresh** in card details updates only that card's linked sources, preserves unsaved edits, and imports no other items. The details button is disabled when there are no linked sources or a refresh is already running.
+
+**Needs first touch** appears when a card links an open GitHub issue awaiting its first human team response. Bot replies do not count. Refresh clears it after a human team reply; later unanswered replies do not bring it back. PRs, support tickets, closed issues, and Done cards do not receive this label. It is derived from verified conversation facts, without changing card status or history.
 
 The card description is the current plan: what needs to happen, who needs to do it, and any blocker. Edit it inline in the card's details and click **Save** (or Ctrl+S). Sources and updates can refresh while you type without overwriting your draft. If the card changes while its editable fields are untouched, the panel adopts the new values automatically, including an automatic move to Done. Unsaved field edits retain conflict protection; unposted update text is preserved. Close/Escape leaves saved changes intact and cancels any unsaved edits.
 
