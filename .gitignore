@@ -24,6 +24,8 @@ coverage.xml
 .env.*
 !.env.example
 config.json
+config.yml
+config.yaml
 *.pem
 *.key
 

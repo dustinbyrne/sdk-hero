@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
+import yaml
+
 from .store import Store
 
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -66,18 +68,27 @@ def inventory_repos(path: Path) -> list[str]:
 
 def config_path() -> Path:
     base = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-    return Path(os.environ.get("SDK_HERO_CONFIG", str(base / "sdk-support-hero/config.json")))
+    if override := os.environ.get("SDK_HERO_CONFIG"):
+        return Path(override)
+    default = base / "sdk-support-hero/config.yml"
+    legacy = default.with_suffix(".json")
+    return legacy if not default.exists() and legacy.exists() else default
 
 
 def load_config(path: Path) -> dict:
     if not path.exists():
         return {"repos": [], "support": None}
-    config = json.loads(path.read_text())
+    try:
+        config = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as error:
+        raise ValueError("Invalid YAML configuration") from error
     validate_config(config)
     return config
 
 
 def validate_config(config):
+    if not isinstance(config, dict):
+        raise ValueError("Configuration must be a mapping")
     if not isinstance(config.get("repos"), list) or not all(
         isinstance(repo, str) and REPO.fullmatch(repo) for repo in config["repos"]
     ):

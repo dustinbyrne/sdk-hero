@@ -115,7 +115,7 @@ Deletion cannot be undone through the app. Deleted card IDs and suppressed sourc
 ## Storage and migration
 
 - Database: `~/.local/share/sdk-support-hero/board.db`
-- Configuration: `~/.config/sdk-support-hero/config.json`
+- Configuration: `~/.config/sdk-support-hero/config.yml`. YAML supports comments; existing JSON configurations remain readable. Without an override, `config.json` is used only when `config.yml` does not exist.
 - Overrides: `--db PATH`, `--config PATH`, `SDK_HERO_DB`, `SDK_HERO_CONFIG`, or XDG directories.
 
 SQLite uses WAL, short transactions, and a busy timeout. Task mutations and history entries commit atomically; concurrent identical source observations produce one change entry. Only one refresh runs per database, using an OS file lock. Use a local disk, not a network share.

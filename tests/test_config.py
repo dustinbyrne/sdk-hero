@@ -4,7 +4,7 @@ import pytest
 
 from sdk_support_hero.cli import main
 from sdk_support_hero.store import Store
-from sdk_support_hero.sync import Syncer, SyncError, load_config, validate_config
+from sdk_support_hero.sync import Syncer, SyncError, config_path, load_config, validate_config
 
 SUPPORT = {
     "host": "https://support.example.com",
@@ -12,6 +12,49 @@ SUPPORT = {
     "view": "example-view",
     "view_name": "Example queue",
 }
+
+
+def test_yaml_init_and_comments(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("SDK_HERO_CONFIG", raising=False)
+    path = tmp_path / "sdk-support-hero/config.yml"
+    assert config_path() == path
+    assert main(["init", "--repo", "example/sdk"]) == 0
+    assert path.read_text().startswith("repos:\n")
+    path.write_text("# Local board configuration\n" + path.read_text())
+    assert load_config(path) == {"repos": ["example/sdk"], "support": None}
+
+
+def test_legacy_fallback_yaml_precedence_and_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("SDK_HERO_CONFIG", raising=False)
+    legacy = tmp_path / "sdk-support-hero/config.json"
+    legacy.parent.mkdir()
+    legacy.write_text('{"repos": [], "support": null}')
+    assert config_path() == legacy
+    assert load_config(legacy)["repos"] == []
+    current = legacy.with_suffix(".yml")
+    current.write_text("repos: [example/sdk]\nsupport: null\n")
+    assert config_path() == current
+    assert load_config(current)["repos"] == ["example/sdk"]
+    monkeypatch.setenv("SDK_HERO_CONFIG", str(legacy))
+    assert config_path() == legacy
+
+
+@pytest.mark.parametrize("content", ["repos: [", "!!python/object/apply:builtins.str [hello]"])
+def test_invalid_or_unsafe_yaml_is_rejected(tmp_path, content):
+    path = tmp_path / "config.yml"
+    path.write_text(content)
+    with pytest.raises(ValueError, match="Invalid YAML configuration"):
+        load_config(path)
+
+
+@pytest.mark.parametrize("content", ["", "[]", "hello"])
+def test_yaml_root_must_be_a_mapping(tmp_path, content):
+    path = tmp_path / "config.yml"
+    path.write_text(content)
+    with pytest.raises(ValueError, match="must be a mapping"):
+        load_config(path)
 
 
 def test_init_support_requires_explicit_configuration(tmp_path, capsys):

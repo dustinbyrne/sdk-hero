@@ -44,16 +44,14 @@ These are placeholders. Use your PostHog instance's HTTPS origin and actual proj
 
 For an existing installation, edit the local configuration instead of rerunning `init`:
 
-```json
-{
-  "repos": ["owner/repository"],
-  "support": {
-    "host": "https://support.example.com",
-    "project": 4242,
-    "view": "example-view",
-    "view_name": "Example queue"
-  }
-}
+```yaml
+repos:
+  - owner/repository
+support:
+  host: https://support.example.com
+  project: 4242
+  view: example-view
+  view_name: Example queue
 ```
 
 Set `support` to `null` to disable support intake. Credentials remain managed by the external CLIs, not in this configuration.
@@ -81,7 +79,7 @@ Use `sdk-hero --help` for commands and `sdk-hero COMMAND --help` for options. Th
 
 ## Local data
 
-- Configuration: `~/.config/sdk-support-hero/config.json`
+- Configuration: `~/.config/sdk-support-hero/config.yml` (existing `config.json` is used if no YAML config exists)
 - Database: `~/.local/share/sdk-support-hero/board.db`
 - Pi launch artifacts: `investigations/` beside the database
 - Overrides: `--config`, `--db`, `SDK_HERO_CONFIG`, `SDK_HERO_DB`, or XDG directories

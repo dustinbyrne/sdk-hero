@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import yaml
+
 from .store import FIELDS, KINDS, STATUSES, Store, default_db, now
 from .sync import Syncer, config_path, inventory_repos, load_config, parse_source, validate_config
 
@@ -152,8 +154,11 @@ def main(argv=None):
             validate_config(config)
             args.config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             with args.config.open("x") as file:
-                json.dump(config, file, indent=2)
-                file.write("\n")
+                if args.config.suffix.lower() == ".json":
+                    json.dump(config, file, indent=2)
+                    file.write("\n")
+                else:
+                    yaml.safe_dump(config, file, sort_keys=False, allow_unicode=True)
             emit(
                 {"config": str(args.config), "message": "Configured. Run sdk-hero sync or press r."}
             )
