@@ -380,6 +380,39 @@ class CardDetails(ModalScreen):
         await self.refresh_evidence()
         self.set_interval(2, self.refresh_evidence)
 
+    def form_values(self):
+        values = {
+            key: self.query_one(f"#detail-{key.replace('_', '-')}", Input).value
+            for key in ("title", "sdk", "delegated_to")
+        }
+        values["description"] = self.query_one("#detail-description", TextArea).text
+        values.update(
+            {
+                key: self.query_one(f"#detail-{key.replace('_', '-')}", Select).value
+                for key in ("status", "priority", "kind", "sla_source")
+            }
+        )
+        return values
+
+    def adopt_task(self, task):
+        selector = self.query_one("#detail-sla-source", Select)
+        options = self.sla_source_options(task["sources"], task["sla_source"])
+        if options != self.sla_options_fingerprint:
+            selector.set_options(options)
+            self.sla_options_fingerprint = options
+        current = self.form_values()
+        self.snapshot = task
+        for key, value in current.items():
+            if value == task[key]:
+                continue
+            widget = self.query_one(f"#detail-{key.replace('_', '-')}")
+            if key == "description":
+                widget.load_text(task[key])
+            else:
+                widget.value = task[key]
+        self.query_one("#detail-delegated-to", Input).disabled = task["status"] != "waiting"
+        self.query_one("#detail-warning", Static).update("")
+
     async def refresh_evidence(self):
         try:
             task = self.store.get(self.task_id)
@@ -410,15 +443,18 @@ class CardDetails(ModalScreen):
         self.query_one("#detail-investigate", Button).disabled = (
             not self.app.investigator.available or self.task_id in self.app.investigating
         )
+        if task["revision"] != self.snapshot["revision"]:
+            if all(value == self.snapshot[key] for key, value in self.form_values().items()):
+                self.adopt_task(task)
+            else:
+                self.query_one("#detail-warning", Static).update(
+                    "Card changed elsewhere. Draft preserved; close and reopen before saving."
+                )
         self.query_one("#take-back", Button).disabled = not (
             task["status"] == "waiting"
             and task["delegated_to"]
             and task["revision"] == self.snapshot["revision"]
         )
-        if task["revision"] != self.snapshot["revision"]:
-            self.query_one("#detail-warning", Static).update(
-                "Card changed elsewhere. Draft preserved; close and reopen before saving."
-            )
         selector = self.query_one("#detail-sla-source", Select)
         selected = selector.value
         options = self.sla_source_options(task["sources"], selected)
@@ -549,22 +585,9 @@ class CardDetails(ModalScreen):
 
     @on(Button.Pressed, "#detail-save")
     def action_save(self):
-        values = {
-            "title": self.query_one("#detail-title", Input).value,
-            "description": self.query_one("#detail-description", TextArea).text,
-            "sdk": self.query_one("#detail-sdk", Input).value,
-            "sla_source": self.query_one("#detail-sla-source", Select).value,
-        }
-        values.update(
-            {
-                key: self.query_one(f"#detail-{key}", Select).value
-                for key in ("status", "priority", "kind")
-            }
-        )
+        values = self.form_values()
         values["delegated_to"] = (
-            self.query_one("#detail-delegated-to", Input).value.strip()
-            if values["status"] == "waiting"
-            else ""
+            values["delegated_to"].strip() if values["status"] == "waiting" else ""
         )
         patch = {key: value for key, value in values.items() if value != self.snapshot[key]}
         try:
