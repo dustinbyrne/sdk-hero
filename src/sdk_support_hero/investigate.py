@@ -359,6 +359,56 @@ class Investigator:
                 return {**details, "agent_name": agent.get("name") or agent["pane_id"]}
         return None
 
+    def live_sessions(self, task_id):
+        """Find distinct recorded sessions currently open in this Herdr server."""
+        if not self.available:
+            return []
+        paths = {}
+        for details in self.store.investigation_sessions():
+            if details["card_id"] == task_id and details.get("herdr_socket", "") == os.environ.get(
+                "HERDR_SOCKET_PATH", ""
+            ):
+                paths[str(Path(details["session_file"]).resolve())] = details
+        if not paths:
+            return []
+        sessions = []
+        for agent in self.runner(["agent", "list"])["agents"]:
+            session = agent.get("agent_session") or {}
+            if agent.get("agent") != "pi" or session.get("kind") != "path":
+                continue
+            details = paths.get(str(Path(session["value"]).resolve()))
+            if details:
+                sessions.append(
+                    {
+                        **details,
+                        "agent_name": agent.get("name") or agent["pane_id"],
+                        "pane_id": agent["pane_id"],
+                        "state": agent.get("agent_status", "unknown"),
+                    }
+                )
+        return sessions
+
+    def close_session(self, details, *, automatic=False):
+        """Close only the identified pane, rechecking state immediately before closing."""
+        self.require_herdr()
+        if details.get("herdr_socket", "") != os.environ.get("HERDR_SOCKET_PATH", ""):
+            return False
+        if self.store.get(details["card_id"], brief=True)["status"] != "done":
+            return False
+        agent = self.runner(["agent", "get", details["pane_id"]])["agent"]
+        session = agent.get("agent_session") or {}
+        if (
+            agent.get("agent") != "pi"
+            or agent.get("pane_id") != details["pane_id"]
+            or session.get("kind") != "path"
+            or Path(session["value"]).resolve() != Path(details["session_file"]).resolve()
+        ):
+            return False
+        if automatic and agent.get("agent_status") not in {"idle", "done"}:
+            return False
+        self.runner(["pane", "close", agent["pane_id"]])
+        return True
+
     def focus_card(self, task_id):
         """Jump to the most recently launched session that is still live."""
         self.require_herdr()

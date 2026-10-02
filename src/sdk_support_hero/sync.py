@@ -93,6 +93,8 @@ def validate_config(config):
         isinstance(repo, str) and REPO.fullmatch(repo) for repo in config["repos"]
     ):
         raise ValueError("config.repos must contain owner/repository names")
+    if type(config.get("auto_close_pi_on_done", True)) is not bool:
+        raise ValueError("config.auto_close_pi_on_done must be a boolean")
     support = config.get("support")
     if support is not None:
         if not isinstance(support, dict):

@@ -41,6 +41,16 @@ Cards with a live linked Pi session show **Working**, **Done · unread**, **Idle
 
 Each recorded session's **Updates** item has **Open / resume Pi**, which targets that specific conversation even when a card has several sessions. A live session is focused. For a closed session, choose a workspace to resume its saved file in its original working directory, without submitting the original task again. Resume requires the saved file and working directory to exist; the new tab is recorded in Updates.
 
+Moving a card to **Done** manually offers to close its live Pi sessions. **Keep open** is the default; select which sessions to close. Closing a working session interrupts it, but saved conversations remain resumable.
+
+When a board **Refresh** automatically completes a card, its idle/completed Pi sessions close automatically. Working, blocked, and unknown-state sessions stay open and are not closed later when they finish. Only the associated panes are closed, not other panes in their tabs. Session identity and state are checked again immediately before closing; the state check is best-effort, not atomic with the close. Command-line sync does not close panes.
+
+To disable automatic closure, add this top-level setting to `config.yml` and restart the board:
+
+```yaml
+auto_close_pi_on_done: false  # Defaults to true; manual moves still ask.
+```
+
 Status checks match the recorded session path in the same Herdr server, so renaming or moving a live agent does not break the association. Checks do not focus sessions, mark them viewed, change card columns, or append Updates.
 
 ### Keyboard

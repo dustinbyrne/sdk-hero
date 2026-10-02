@@ -18,6 +18,7 @@ from textual.widgets import (
     ListItem,
     ListView,
     Select,
+    SelectionList,
     Static,
     TextArea,
 )
@@ -305,6 +306,55 @@ class InvestigateCard(ModalScreen):
     @on(Button.Pressed, "#investigate-cancel")
     def action_cancel(self):
         self.dismiss(None)
+
+
+class ClosePiSessions(ModalScreen):
+    BINDINGS = [("escape", "keep_open", "Keep open")]
+    DEFAULT_CSS = """
+    ClosePiSessions { align: center middle; background: $background 75%; }
+    #close-pi-dialog { width: 80; max-width: 95%; height: auto; max-height: 90%;
+        padding: 1 2; border: round $accent; }
+    #close-pi-sessions { height: auto; max-height: 12; margin: 1 0; }
+    #close-pi-dialog Horizontal { height: 3; }
+    """
+
+    def __init__(self, task_id, sessions):
+        super().__init__()
+        self.task_id, self.sessions = task_id, sessions
+
+    def compose(self):
+        with Vertical(id="close-pi-dialog"):
+            yield Label(f"Card #{self.task_id} moved to Done")
+            yield Static(
+                "Would you like to close the active Pi session?"
+                if len(self.sessions) == 1
+                else "Would you like to close the active Pi sessions?"
+            )
+            yield Static(
+                "Closing a working session interrupts it. Saved conversations remain resumable."
+            )
+            yield SelectionList(
+                *[
+                    (f"{s['agent_name']} · {s['state']}", i, True)
+                    for i, s in enumerate(self.sessions)
+                ],
+                id="close-pi-sessions",
+            )
+            with Horizontal():
+                yield Button("Keep open", id="keep-pi")
+                yield Button("Close selected", variant="warning", id="close-pi")
+
+    def on_mount(self):
+        self.query_one("#keep-pi", Button).focus()
+
+    @on(Button.Pressed, "#keep-pi")
+    def action_keep_open(self):
+        self.dismiss([])
+
+    @on(Button.Pressed, "#close-pi")
+    def close_selected(self):
+        selected = self.query_one("#close-pi-sessions", SelectionList).selected
+        self.dismiss([self.sessions[i] for i in selected])
 
 
 class InvestigationOpenButton(Button):
@@ -675,6 +725,8 @@ class CardDetails(ModalScreen):
         self.query_one("#detail-delegated-to", Input).value = self.snapshot["delegated_to"]
         self.query_one("#detail-warning", Static).update("Saved")
         self.call_after_refresh(self.refresh_evidence)
+        if patch.get("status") == "done":
+            self.app.offer_close_pi(self.task_id)
 
     @on(Button.Pressed, "#post-update")
     @on(Input.Submitted, "#new-update")
@@ -1035,6 +1087,8 @@ class Board(App):
             self.store.update(task["id"], expected_revision=task["revision"], actor="you", **patch)
             self.selected = task["id"]
             self.column_index = STATUSES.index(patch.get("status", task["status"]))
+            if patch.get("status") == "done" and task["status"] != "done":
+                self.offer_close_pi(task["id"])
         except (Conflict, ValueError) as error:
             self.notify(str(error), severity="warning")
         await self.refresh_board()
@@ -1190,6 +1244,45 @@ class Board(App):
         self.sync_worker(task_id)
         return True
 
+    @work(thread=True)
+    def offer_close_pi(self, task_id):
+        try:
+            sessions = self.investigator.live_sessions(task_id)
+            if sessions and self.is_running:
+                self.call_from_thread(self.confirm_close_pi, task_id, sessions)
+        except Exception as error:
+            if self.is_running:
+                self.call_from_thread(
+                    self.notify, f"Could not inspect Pi sessions: {error}", severity="warning"
+                )
+
+    def confirm_close_pi(self, task_id, sessions):
+        try:
+            if self.store.get(task_id, brief=True)["status"] != "done":
+                return
+        except ValueError:
+            return
+
+        def selected(sessions):
+            if sessions:
+                self.close_pi_sessions(sessions)
+
+        self.push_screen(ClosePiSessions(task_id, sessions), selected)
+
+    @work(thread=True)
+    def close_pi_sessions(self, sessions):
+        self.close_pi_sessions_now(sessions)
+
+    def close_pi_sessions_now(self, sessions, *, automatic=False):
+        for session in sessions:
+            try:
+                self.investigator.close_session(session, automatic=automatic)
+            except Exception as error:
+                if self.is_running:
+                    self.call_from_thread(
+                        self.notify, f"Could not close Pi session: {error}", severity="warning"
+                    )
+
     def sync_message(self, text):
         self.query_one("#sync-status", Static).update(text)
 
@@ -1206,6 +1299,19 @@ class Board(App):
             else:
                 results = self.syncer.sync_card(task_id, progress=progress)
                 unit = "sources"
+            if self.config.get("auto_close_pi_on_done", True) and self.investigator.available:
+                for completed in getattr(self.syncer, "completed_card_ids", []):
+                    try:
+                        sessions = self.investigator.live_sessions(completed)
+                        self.close_pi_sessions_now(
+                            [s for s in sessions if s["state"] in {"idle", "done"}], automatic=True
+                        )
+                    except Exception as error:
+                        self.call_from_thread(
+                            self.notify,
+                            f"Could not inspect Pi sessions: {error}",
+                            severity="warning",
+                        )
             failures = sum(error is not None for error in results.values())
             self.call_from_thread(
                 self.notify, f"Refreshed {len(results)} {unit}; {failures} failed"
