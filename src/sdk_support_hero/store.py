@@ -320,7 +320,7 @@ class Store:
             ).fetchall()
         return [{**dict(row), "facts": json.loads(row["facts"])} for row in rows]
 
-    def link(self, task_id: int, source: dict):
+    def link(self, task_id: int, source: dict, *, actor="cli"):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if not db.execute("SELECT 1 FROM tasks WHERE id=?", (task_id,)).fetchone():
@@ -344,7 +344,7 @@ class Store:
                 ),
             )
             db.execute("DELETE FROM dismissed_sources WHERE key=?", (source["key"],))
-            self._record(db, task_id, "cli", "linked", "Source linked", {"url": source["url"]})
+            self._record(db, task_id, actor, "linked", "Source linked", {"url": source["url"]})
 
     def move_source(self, key: str, task_id: int):
         with self.connect() as db:

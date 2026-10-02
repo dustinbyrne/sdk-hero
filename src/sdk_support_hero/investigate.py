@@ -132,6 +132,9 @@ class Investigator:
             f"{shlex.join([*command, 'show', str(task_id), '--brief'])}\n"
             f"Updates, if useful: {shlex.join([*command, 'history', str(task_id)])}\n"
             f"Full card and source facts: {shlex.join([*command, 'show', str(task_id)])}\n"
+            "When you open a related pull request or discover another source needed to track "
+            "this same work, attach its URL to this card so refresh can track its progress: "
+            f"{shlex.join([*command, 'link', str(task_id)])} '<source URL>'\n"
             "Record your outcome in Updates: "
             f"{shlex.join([*command, 'note', str(task_id)])} '<summary>'"
         )

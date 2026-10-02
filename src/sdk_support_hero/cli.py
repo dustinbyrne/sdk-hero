@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from .store import FIELDS, KINDS, STATUSES, Store, default_db, now
-from .sync import Syncer, config_path, inventory_repos, load_config, parse_source, validate_config
+from .sync import Syncer, config_path, inventory_repos, load_config, validate_config
 
 
 def emit(value):
@@ -192,16 +192,7 @@ def main(argv=None):
             store.delete(args.id, expected_revision=args.if_revision)
             emit({"deleted": args.id})
         elif args.command == "link":
-            source = parse_source(args.url, config)
-            if source["kind"] == "ticket":
-                # Resolve numeric/UUID aliases before assigning a unique local source key.
-                data = Syncer(store, config).posthog(
-                    "conversations-tickets-retrieve", {"id": source["remote_id"]}
-                )
-                source["remote_id"] = data["id"]
-                source["key"] = f"{source['scope']}:{data['id']}"
-                source["url"] = data["_posthogUrl"]
-            store.link(args.id, source)
+            Syncer(store, config).link_source(args.id, args.url)
             emit(store.get(args.id))
         elif args.command == "source-move":
             store.move_source(args.key, args.id)

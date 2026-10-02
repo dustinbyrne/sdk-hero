@@ -27,6 +27,14 @@ Run directly in a Herdr terminal, or use `uv run sdk-hero` without installing. E
 
 **Needs first touch** appears when a card links an open GitHub issue awaiting its first human team response. Bot replies do not count. Refresh clears it after a human team reply; later unanswered replies do not bring it back. PRs, support tickets, closed issues, and Done cards do not receive this label. It is derived from verified conversation facts, without changing card status or history.
 
+To attach a source to an existing card, paste its URL under **Linked sources** and click **Add source** (or press Enter). GitHub issues, PRs, workflow runs, and tickets from the configured support project are supported. Adding a source preserves unsaved card edits and unposted updates. Existing links are not duplicated; a source owned by another card cannot be reassigned here. Support URLs are resolved through a read-only lookup so numeric and UUID URLs identify the same ticket. Use **Refresh** afterward to fetch source facts.
+
+New Pi investigation prompts include the card-specific `link` command and guidance to attach related PRs they open or other sources needed to track the same work. You can also link directly from the CLI:
+
+```sh
+sdk-hero link 42 https://github.com/example/sdk/pull/123
+```
+
 The card description is the current plan: what needs to happen, who needs to do it, and any blocker. Edit it inline in the card's details and click **Save** (or Ctrl+S). Sources and updates can refresh while you type without overwriting your draft. If the card changes while its editable fields are untouched, the panel adopts the new values automatically, including an automatic move to Done. Unsaved field edits retain conflict protection; unposted update text is preserved. Close/Escape leaves saved changes intact and cancels any unsaved edits.
 
 The **Updates** section records creation, description/title/label edits, column/priority changes, manual updates, links, and meaningful source changes. Enter text and click **Post** to append a local update; this does not post to GitHub or PostHog. Newest entries appear first in the TUI. The full history is retained, with before/after values, and exported in chronological order. New refresh entries display plain-language summaries, including CI result counts instead of full check lists. Full before/after data remains available through `sdk-hero history ID`. Identical refreshes, timestamp-only changes, unread counts, and reordered checks do not create update noise. A changed reply count is recorded as a count change, not as a claim about who replied or what they said.

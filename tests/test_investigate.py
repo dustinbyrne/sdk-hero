@@ -260,6 +260,11 @@ def test_launch_records_session_and_passes_custom_prompt_as_data(launch_setup):
     assert args[args.index("--db") + 1] == str(store.path)
     assert args[args.index("--config") + 1] == str(launcher.config_file)
     assert args[-3:] == ["show", str(task), "--brief"]
+    link_line = next(line for line in prompt.splitlines() if line.startswith("When you open"))
+    link_args = shlex.split(link_line.split(": ", 1)[1])
+    assert link_args[:-3] == args[:-3]
+    assert link_args[-3:] == ["link", str(task), "<source URL>"]
+    assert "related pull request" in link_line
     assert "history" in prompt and "Record your outcome" in prompt
     assert "Saved description" not in prompt
     assert Path(result["prompt_file"]).read_text() == prompt

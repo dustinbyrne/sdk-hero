@@ -401,8 +401,9 @@ class CardDetails(ModalScreen):
     #detail-sources .source-sla.overdue { color: $error; }
     #detail-sources .source-sla.soon { color: $warning; }
     #detail-sources .source-sla.normal { color: $success; }
-    #post-row { height: 3; }
-    #post-row Input { width: 1fr; }
+    #post-row, #link-source-row { height: 3; }
+    #post-row Input, #link-source-row Input { width: 1fr; }
+    #link-source-message { height: auto; color: $warning; }
     #detail-warning { height: auto; color: $warning; }
     """
 
@@ -413,6 +414,7 @@ class CardDetails(ModalScreen):
         self.snapshot = store.get(task_id)
         self.history_fingerprint = None
         self.sla_options_fingerprint = None
+        self.linking_source = False
 
     @staticmethod
     def sla_source_options(sources, selected):
@@ -489,6 +491,12 @@ class CardDetails(ModalScreen):
                         id="detail-kind",
                     )
                 yield Label("Linked sources")
+                with Horizontal(id="link-source-row"):
+                    yield Input(
+                        placeholder="GitHub or configured support URL…", id="link-source-url"
+                    )
+                    yield Button("Add source", id="link-source-add")
+                yield Static("", id="link-source-message", markup=False)
                 yield Vertical(id="detail-sources")
                 yield Label("Updates")
                 with Horizontal(id="post-row"):
@@ -547,6 +555,7 @@ class CardDetails(ModalScreen):
                 "#post-update",
                 "#detail-investigate",
                 "#detail-open-pi",
+                "#link-source-add",
             ):
                 self.query_one(selector, Button).disabled = True
             self.query_one("#take-back", Button).disabled = True
@@ -702,6 +711,42 @@ class CardDetails(ModalScreen):
             "Taken back to Inbox; other draft edits preserved"
         )
         self.call_after_refresh(self.refresh_evidence)
+
+    @on(Button.Pressed, "#link-source-add")
+    @on(Input.Submitted, "#link-source-url")
+    def add_source(self):
+        entry = self.query_one("#link-source-url", Input)
+        if self.linking_source or not entry.value.strip():
+            return
+        self.linking_source = True
+        entry.disabled = True
+        self.query_one("#link-source-add", Button).disabled = True
+        self.query_one("#link-source-message", Static).update("Adding source…")
+        self.link_source_worker(entry.value)
+
+    @work(thread=True)
+    def link_source_worker(self, url):
+        error = None
+        try:
+            self.app.syncer.link_source(self.task_id, url, actor="you")
+        except Exception as exc:
+            error = str(exc)
+        if self.is_mounted and self.app.is_running:
+            self.app.call_from_thread(self.source_linked, error)
+
+    async def source_linked(self, error):
+        if not self.is_mounted:
+            return
+        self.linking_source = False
+        entry = self.query_one("#link-source-url", Input)
+        entry.disabled = False
+        self.query_one("#link-source-add", Button).disabled = False
+        if error is None:
+            entry.value = ""
+        self.query_one("#link-source-message", Static).update(
+            error if error is not None else "Source linked. Refresh to fetch its latest facts."
+        )
+        await self.refresh_evidence()
 
     @on(Button.Pressed, "#detail-save")
     def action_save(self):

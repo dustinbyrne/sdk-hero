@@ -328,6 +328,16 @@ class Syncer:
         self.refreshed = {}
         self.completed_card_ids = []
 
+    def link_source(self, task_id, url, *, actor="cli"):
+        source = parse_source(url.strip(), self.config)
+        if source["kind"] == "ticket":
+            # Numeric ticket URLs and UUID URLs must share one local source key.
+            data = self.posthog("conversations-tickets-retrieve", {"id": source["remote_id"]})
+            source["remote_id"] = data["id"]
+            source["key"] = f"{source['scope']}:{data['id']}"
+            source["url"] = data["_posthogUrl"]
+        self.store.link(task_id, source, actor=actor)
+
     def completion_snapshots(self):
         self.refreshed = {}
         self.completed_card_ids = []
