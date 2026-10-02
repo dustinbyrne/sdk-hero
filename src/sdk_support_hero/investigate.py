@@ -136,9 +136,16 @@ class Investigator:
             f"{shlex.join([*command, 'note', str(task_id)])} '<summary>'"
         )
 
-    def launch(self, task_id, workspace_id, instruction=""):
+    def launch(self, task_id, workspace_id, instruction="", *, resume=None):
         self.require_herdr()
         task = self.store.get(task_id, brief=True)
+        saved_header = None
+        if resume is not None:
+            live = self.find_live(resume)
+            if live:
+                self.focus(live)
+                return live
+            saved_header = self.saved_session(resume)
         workspaces, _ = self.workspaces()
         workspace = next((w for w in workspaces if w["workspace_id"] == workspace_id), None)
         if workspace is None:
@@ -146,13 +153,16 @@ class Investigator:
         run_id = uuid.uuid4().hex
         directory = self.root / run_id
         directory.mkdir(parents=True, mode=0o700)
-        session_file = directory / "session.jsonl"
-        session_file.touch(mode=0o600, exist_ok=False)
+        session_file = (
+            Path(resume["session_file"]) if resume is not None else directory / "session.jsonl"
+        )
         prompt_file = directory / "prompt.txt"
         prompt = self.prompt(task_id, instruction)
-        with prompt_file.open("x", encoding="utf-8") as stream:
-            os.chmod(prompt_file, 0o600)
-            stream.write(prompt)
+        if resume is None:
+            session_file.touch(mode=0o600, exist_ok=False)
+            with prompt_file.open("x", encoding="utf-8") as stream:
+                os.chmod(prompt_file, 0o600)
+                stream.write(prompt)
         manifest = directory / "launch.json"
         details = {
             "run_id": run_id,
@@ -163,10 +173,14 @@ class Investigator:
             "agent_name": f"hero-{run_id[:16]}",
             "session_file": str(session_file),
             "manifest": str(manifest),
-            "prompt_file": str(prompt_file),
+            "prompt_file": str(prompt_file) if resume is None else "",
             "herdr_socket": os.environ.get("HERDR_SOCKET_PATH", ""),
             "resume_command": shlex.join(["pi", "--session", str(session_file)]),
         }
+
+        if resume is not None:
+            details["resumed_from"] = resume["run_id"]
+            details["session_id"] = saved_header["id"]
 
         def checkpoint(stage):
             details["stage"] = stage
@@ -178,7 +192,13 @@ class Investigator:
 
         checkpoint("prepared")
         # If the card disappeared, stop before creating any terminal layout.
-        self.store.investigation_update(task_id, "Pi investigation launch requested", details)
+        self.store.investigation_update(
+            task_id,
+            "Pi session resume requested"
+            if resume is not None
+            else "Pi investigation launch requested",
+            details,
+        )
         try:
             checkpoint("creating_tab")
             created = self.runner(
@@ -189,6 +209,7 @@ class Investigator:
                     workspace_id,
                     "--label",
                     f"#{task_id}",
+                    *(["--cwd", saved_header["cwd"]] if saved_header is not None else []),
                     "--no-focus",
                 ]
             )
@@ -220,7 +241,7 @@ class Investigator:
             session = agent.get("agent_session") or {}
             if agent["pane_id"] != details["pane_id"] or agent.get("agent") != "pi":
                 raise LaunchError("The new pane does not contain the expected Pi agent")
-            if (
+            if (saved_header is not None and session.get("kind") != "path") or (
                 session.get("kind") == "path"
                 and Path(session["value"]).resolve() != session_file.resolve()
             ):
@@ -229,26 +250,35 @@ class Investigator:
                 header = json.loads(stream.readline(65536))
             if header.get("type") != "session" or not header.get("id"):
                 raise LaunchError("Pi did not initialize the expected persistent session")
+            if saved_header is not None and header["id"] != saved_header["id"]:
+                raise LaunchError("Pi opened a different session than the one requested")
             details["session_id"] = header["id"]
             details["cwd"] = header.get("cwd")
             self.store.get(task_id, brief=True)
-            checkpoint("submitting_prompt")
-            self.runner(
-                [
-                    "agent",
-                    "prompt",
-                    details["agent_name"],
-                    prompt,
-                    "--wait",
-                    "--until",
-                    "working",
-                    "--timeout",
-                    "10000",
-                ],
-                timeout=20,
-            )
+            if resume is None:
+                checkpoint("submitting_prompt")
+                self.runner(
+                    [
+                        "agent",
+                        "prompt",
+                        details["agent_name"],
+                        prompt,
+                        "--wait",
+                        "--until",
+                        "working",
+                        "--timeout",
+                        "10000",
+                    ],
+                    timeout=20,
+                )
             checkpoint("started")
-            self.store.investigation_update(task_id, "Pi investigation started", details)
+            self.store.investigation_update(
+                task_id,
+                "Pi session resumed" if resume is not None else "Pi investigation started",
+                details,
+            )
+            if resume is not None:
+                self.focus(details)
             return details
         except Exception as error:
             failed_stage = details["stage"]
@@ -294,6 +324,40 @@ class Investigator:
         except Exception:
             # Do not leave a stale Working or Unread badge after a failed observation.
             return {task_id: ["unavailable"] for ids in paths.values() for task_id in ids}
+
+    def saved_session(self, details):
+        try:
+            with Path(details["session_file"]).open(encoding="utf-8") as stream:
+                header = json.loads(stream.readline(65536))
+        except (OSError, ValueError) as error:
+            raise LaunchError("The saved Pi session is missing or unreadable") from error
+        if (
+            not isinstance(header, dict)
+            or header.get("type") != "session"
+            or not header.get("id")
+            or header.get("id") != details.get("session_id")
+        ):
+            raise LaunchError("The saved file does not match this Pi session")
+        if not isinstance(header.get("cwd"), str) or not Path(header["cwd"]).is_dir():
+            raise LaunchError("The session's original working directory no longer exists")
+        return header
+
+    def find_live(self, details):
+        self.require_herdr()
+        if details.get("herdr_socket", "") != os.environ.get("HERDR_SOCKET_PATH", ""):
+            raise LaunchError(
+                "This session belongs to another Herdr server; use its resume command"
+            )
+        agents = self.runner(["agent", "list"])["agents"]
+        for agent in agents:
+            session = agent.get("agent_session") or {}
+            if (
+                agent.get("agent") == "pi"
+                and session.get("kind") == "path"
+                and Path(session["value"]).resolve() == Path(details["session_file"]).resolve()
+            ):
+                return {**details, "agent_name": agent.get("name") or agent["pane_id"]}
+        return None
 
     def focus_card(self, task_id):
         """Jump to the most recently launched session that is still live."""

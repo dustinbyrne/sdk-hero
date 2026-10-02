@@ -228,23 +228,34 @@ class InvestigateCard(ModalScreen):
     #investigate-error { height: auto; color: $warning; }
     """
 
-    def __init__(self, investigator):
+    def __init__(self, investigator, *, resume=None):
         super().__init__()
         self.investigator = investigator
+        self.resume = resume
 
     def compose(self):
         with Vertical(id="investigate-dialog"):
-            yield Label("Launch Pi in Herdr")
-            yield Static("Uses the saved card. Other unsaved edits stay in this dialog.")
+            yield Label("Resume Pi in Herdr" if self.resume else "Launch Pi in Herdr")
+            yield Static(
+                "Reopens the saved conversation in its original working directory."
+                if self.resume
+                else "Uses the saved card. Other unsaved edits stay in this dialog."
+            )
             yield Label("Workspace")
             yield Select(
                 [], prompt="Loading workspaces…", disabled=True, id="investigate-workspace"
             )
-            yield Label("Optional prompt")
-            yield TextArea("", placeholder=DEFAULT_INSTRUCTION, id="investigate-prompt")
+            if not self.resume:
+                yield Label("Optional prompt")
+                yield TextArea("", placeholder=DEFAULT_INSTRUCTION, id="investigate-prompt")
             yield Static("", id="investigate-error", markup=False)
             with Horizontal():
-                yield Button("Launch Pi", variant="primary", id="investigate-launch", disabled=True)
+                yield Button(
+                    "Resume Pi" if self.resume else "Launch Pi",
+                    variant="primary",
+                    id="investigate-launch",
+                    disabled=True,
+                )
                 yield Button("Cancel", id="investigate-cancel")
 
     def on_mount(self):
@@ -269,7 +280,14 @@ class InvestigateCard(ModalScreen):
         selector = self.query_one("#investigate-workspace", Select)
         selector.set_options([(w["label"], w["workspace_id"]) for w in workspaces])
         ids = {w["workspace_id"] for w in workspaces}
-        selector.value = current if current in ids else workspaces[0]["workspace_id"]
+        preferred = self.resume.get("workspace_id") if self.resume else current
+        selector.value = (
+            preferred
+            if preferred in ids
+            else current
+            if current in ids
+            else workspaces[0]["workspace_id"]
+        )
         selector.disabled = False
         self.query_one("#investigate-launch", Button).disabled = False
 
@@ -277,7 +295,12 @@ class InvestigateCard(ModalScreen):
     def launch(self):
         workspace = self.query_one("#investigate-workspace", Select).value
         if workspace is not Select.BLANK:
-            self.dismiss((workspace, self.query_one("#investigate-prompt", TextArea).text))
+            self.dismiss(
+                (
+                    workspace,
+                    "" if self.resume else self.query_one("#investigate-prompt", TextArea).text,
+                )
+            )
 
     @on(Button.Pressed, "#investigate-cancel")
     def action_cancel(self):
@@ -286,7 +309,7 @@ class InvestigateCard(ModalScreen):
 
 class InvestigationOpenButton(Button):
     def __init__(self, details):
-        super().__init__("Open Pi session", classes="investigation-open")
+        super().__init__("Open / resume Pi", classes="investigation-open")
         self.details = details
 
 
@@ -1093,20 +1116,23 @@ class Board(App):
     def action_new(self):
         self.new_card(STATUSES[self.column_index])
 
-    def start_investigation(self, task_id, workspace, instruction):
+    def start_investigation(self, task_id, workspace, instruction, *, resume=None):
         if task_id in self.investigating:
             self.notify("This card already has a launch in progress")
             return
         self.investigating.add(task_id)
         if isinstance(self.screen, CardDetails):
             self.screen.query_one("#detail-investigate", Button).disabled = True
-        self.investigation_worker(task_id, workspace, instruction)
+        self.investigation_worker(task_id, workspace, instruction, resume=resume)
 
     @work(thread=True)
-    def investigation_worker(self, task_id, workspace, instruction):
+    def investigation_worker(self, task_id, workspace, instruction, *, resume=None):
         try:
-            self.investigator.launch(task_id, workspace, instruction)
-            message, severity = "Pi started in Herdr; session recorded in Updates", "information"
+            if resume is None:
+                self.investigator.launch(task_id, workspace, instruction)
+            else:
+                self.investigator.launch(task_id, workspace, resume=resume)
+            message, severity = "Pi ready in Herdr; session recorded in Updates", "information"
         except Exception as error:
             message, severity = str(error), "error"
         if self.is_running:
@@ -1131,10 +1157,26 @@ class Board(App):
     @work(thread=True)
     def focus_investigation(self, details):
         try:
-            self.investigator.focus(details)
+            live = self.investigator.find_live(details)
+            if live:
+                self.investigator.focus(live)
+            else:
+                self.investigator.saved_session(details)
+                if self.is_running:
+                    self.call_from_thread(self.choose_resume_workspace, details)
         except Exception as error:
             if self.is_running:
                 self.call_from_thread(self.notify, str(error), severity="warning")
+
+    def choose_resume_workspace(self, details):
+        if not isinstance(self.screen, CardDetails) or self.screen.task_id != details["card_id"]:
+            return
+
+        def selected(result):
+            if result:
+                self.start_investigation(details["card_id"], *result, resume=details)
+
+        self.push_screen(InvestigateCard(self.investigator, resume=details), selected)
 
     @on(Button.Pressed, "#refresh")
     def action_sync(self):

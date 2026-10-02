@@ -33,6 +33,7 @@ class FakeHerdr:
         self.after_start = lambda: None
         self.session_mismatch = False
         self.busy_checks = 0
+        self.live = True
 
     def __call__(self, args, **kwargs):
         self.calls.append(args)
@@ -64,19 +65,34 @@ class FakeHerdr:
             return {"tab": {"tab_id": "w2:t9"}, "root_pane": {"pane_id": "w2:p9"}}
         if verb == ("agent", "start"):
             self.session = Path(args[args.index("--session") + 1])
-            self.session.write_text(
-                json.dumps(
-                    {
-                        "type": "session",
-                        "version": 3,
-                        "id": "fixture-session-id",
-                        "cwd": str(self.session.parent),
-                    }
+            if not self.session.read_text():
+                self.session.write_text(
+                    json.dumps(
+                        {
+                            "type": "session",
+                            "version": 3,
+                            "id": "fixture-session-id",
+                            "cwd": str(self.session.parent),
+                        }
+                    )
+                    + "\n"
                 )
-                + "\n"
-            )
+            self.live = True
             self.after_start()
             return {"type": "agent_started"}
+        if verb == ("agent", "list"):
+            return {
+                "agents": [
+                    {
+                        "agent": "pi",
+                        "pane_id": "w2:p9",
+                        "agent_status": "idle",
+                        "agent_session": {"kind": "path", "value": str(self.session)},
+                    }
+                ]
+                if self.live and self.session
+                else []
+            }
         if verb == ("agent", "get"):
             return {
                 "agent": {
@@ -105,6 +121,94 @@ def launch_setup(tmp_path, monkeypatch):
     fake = FakeHerdr()
     launcher = Investigator(store, runner=fake, config_file=tmp_path / "custom config.json")
     return store, task, fake, launcher
+
+
+def test_resume_uses_selected_session_without_replaying_prompt(launch_setup):
+    store, task, fake, launcher = launch_setup
+    first = launcher.launch(task, "w2", "First task")
+    second = launcher.launch(task, "w2", "Second task")
+    session = Path(first["session_file"])
+    with session.open("a") as stream:
+        stream.write(
+            json.dumps({"type": "message", "message": {"role": "user", "content": "History"}})
+            + "\n"
+        )
+    before = session.read_bytes()
+    second_before = Path(second["session_file"]).read_bytes()
+    fake.calls.clear()
+    resumed = launcher.launch(task, "w1", resume=first)
+    assert resumed["session_file"] == first["session_file"]
+    assert resumed["resumed_from"] == first["run_id"]
+    assert resumed["session_id"] == first["session_id"]
+    assert session.read_bytes() == before
+    assert Path(second["session_file"]).read_bytes() == second_before
+    create = next(c for c in fake.calls if c[:2] == ["tab", "create"])
+    assert create[create.index("--workspace") + 1] == "w1"
+    assert create[create.index("--cwd") + 1] == first["cwd"]
+    assert not any(c[:2] == ["agent", "prompt"] for c in fake.calls)
+    assert fake.calls[-1] == ["tab", "focus", "w2:t9"]
+    assert store.history(task)[-1]["summary"] == "Pi session resumed"
+    assert launcher.card_states() == {task: ["idle"]}
+
+
+def test_resume_focuses_existing_session_without_creating_duplicate(launch_setup):
+    store, task, fake, launcher = launch_setup
+    original = launcher.launch(task, "w2")
+    before = store.history(task)
+    fake.calls.clear()
+    launcher.launch(task, "w1", resume=original)
+    assert not any(
+        c[:2] in (["tab", "create"], ["agent", "start"], ["agent", "prompt"]) for c in fake.calls
+    )
+    assert fake.calls[-1] == ["tab", "focus", "w2:t9"]
+    assert store.history(task) == before
+
+
+@pytest.mark.parametrize("problem", ["missing", "identity", "cwd"])
+def test_resume_rejects_missing_or_replaced_session_before_creating_tab(launch_setup, problem):
+    store, task, fake, launcher = launch_setup
+    original = launcher.launch(task, "w2")
+    fake.live = False
+    path = Path(original["session_file"])
+    if problem == "missing":
+        path.unlink()
+    else:
+        header = json.loads(path.read_text())
+        header["id" if problem == "identity" else "cwd"] = "/missing/or/different"
+        path.write_text(json.dumps(header) + "\n")
+    fake.calls.clear()
+    with pytest.raises(LaunchError):
+        launcher.launch(task, "w2", resume=original)
+    assert not any(c[:2] == ["tab", "create"] for c in fake.calls)
+
+
+async def test_updates_resume_dialog_preserves_card_draft(launch_setup):
+    store, task, fake, launcher = launch_setup
+    original = launcher.launch(task, "w2")
+    fake.live = False
+    fake.calls.clear()
+    app = Board(store, {"repos": []}, investigator=launcher)
+    async with app.run_test(size=(120, 45)) as pilot:
+        await pilot.press("e")
+        details = app.screen
+        details.query_one("#detail-description", TextArea).load_text("Unsaved description")
+        button = details.query_one(InvestigationOpenButton)
+        button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        await pilot.click(button)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert isinstance(app.screen, InvestigateCard)
+        assert app.screen.resume["run_id"] == original["run_id"]
+        assert app.screen.query_one("#investigate-workspace", Select).value == "w2"
+        await pilot.click("#investigate-launch")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.screen is details
+        assert details.query_one("#detail-description", TextArea).text == "Unsaved description"
+        assert store.get(task)["description"] == "Saved description"
+        assert not any(c[:2] == ["agent", "prompt"] for c in fake.calls)
+        assert store.history(task)[-1]["summary"] == "Pi session resumed"
 
 
 def test_brief_is_progressive_and_existing_full_view_is_unchanged(tmp_path, monkeypatch, capsys):

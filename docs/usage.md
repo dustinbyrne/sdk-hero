@@ -39,6 +39,8 @@ Use **Waiting** for an outstanding obligation blocked on a reply, decision, or d
 
 Cards with a live linked Pi session show **Working**, **Done · unread**, **Idle · viewed**, or **Needs input**, using Herdr's agent status. Viewing the completed session's tab normally clears its unread state. Each live session gets a badge; closed or replaced sessions disappear on the next successful check. **Open Pi** in card details jumps to the card's most recently launched live session, including after the agent is renamed or moved. It does not start a new session. A failed query shows **Status unavailable**, rather than retaining a stale status.
 
+Each recorded session's **Updates** item has **Open / resume Pi**, which targets that specific conversation even when a card has several sessions. A live session is focused. For a closed session, choose a workspace to resume its saved file in its original working directory, without submitting the original task again. Resume requires the saved file and working directory to exist; the new tab is recorded in Updates.
+
 Status checks match the recorded session path in the same Herdr server, so renaming or moving a live agent does not break the association. Checks do not focus sessions, mark them viewed, change card columns, or append Updates.
 
 ### Keyboard
