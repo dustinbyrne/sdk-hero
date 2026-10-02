@@ -234,7 +234,8 @@ def test_unanswered_post_closure_issue_reply_blocks_completion(tmp_path):
     assert store.get(task)["status"] == "ready"
 
 
-def test_support_link_prevents_pr_only_auto_completion(tmp_path):
+@pytest.mark.parametrize("status", ["open", "pending", "on_hold", "resolved"])
+def test_support_link_must_be_resolved_before_completion(tmp_path, status):
     store, task, source, _, _, _, sync = setup_card(tmp_path)
     ticket = parse_source(
         "https://support.example.com/project/4242/support/tickets/ticket",
@@ -243,8 +244,8 @@ def test_support_link_prevents_pr_only_auto_completion(tmp_path):
     store.link(task, ticket)
     snapshots = sync.completion_snapshots()
     sync.github_item(source)
-    facts = {"status": "resolved"}
+    facts = {"status": status}
     store.observe(ticket, "Support", facts)
     sync.refreshed[ticket["key"]] = {"title": "Support", "facts": facts}
     store.complete_merged_cards(sync.refreshed, snapshots)
-    assert store.get(task)["status"] == "ready"
+    assert store.get(task)["status"] == ("done" if status == "resolved" else "ready")

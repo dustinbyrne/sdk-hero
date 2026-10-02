@@ -324,9 +324,11 @@ class Syncer:
         self.window_start = window_start or rotation_start()
         self.since = self.window_start.astimezone(timezone.utc).isoformat()
         self.refreshed = {}
+        self.completed_card_ids = []
 
     def completion_snapshots(self):
         self.refreshed = {}
+        self.completed_card_ids = []
         tasks = self.store.tasks()
         sources = self.store.sources()
         return [
@@ -647,7 +649,7 @@ class Syncer:
                 if error:
                     self.store.source_error(source["key"], error)
                 results[source["key"]] = error
-            self.store.complete_merged_cards(self.refreshed, snapshots)
+            self.completed_card_ids = self.store.complete_merged_cards(self.refreshed, snapshots)
         return results
 
     def sync(self, only=None, progress=lambda message: None):
@@ -679,5 +681,5 @@ class Syncer:
                     error = str(exc) if isinstance(exc, SyncError) else "Unexpected response schema"
                 self.store.sync_result(scope, error)
                 results[scope] = error
-            self.store.complete_merged_cards(self.refreshed, snapshots)
+            self.completed_card_ids = self.store.complete_merged_cards(self.refreshed, snapshots)
         return results

@@ -501,7 +501,8 @@ class Store:
             return task_id
 
     def complete_merged_cards(self, observations, snapshots):
-        """Complete PR work only from this refresh's verified, unchanged source snapshots."""
+        """Complete verified work and return IDs transitioned by this transaction."""
+        completed = []
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             for snapshot in snapshots:
@@ -514,21 +515,24 @@ class Store:
                 keys = {source["key"] for source in sources}
                 if keys != snapshot["source_keys"] or not keys <= observations.keys():
                     continue
-                if not any(s["kind"] == "pr" for s in sources):
+                if not any(s["kind"] in ("pr", "ticket") for s in sources):
                     continue
                 complete = True
                 for source in sources:
                     facts = json.loads(source["facts"])
                     observed = observations[source["key"]]
-                    state = str(facts.get("state", "")).lower()
+                    state = str(
+                        facts.get("status" if source["kind"] == "ticket" else "state", "")
+                    ).lower()
                     if (
                         source["error"]
                         or observed != {"title": source["title"], "facts": facts}
-                        or (source["kind"], state) not in (("pr", "merged"), ("issue", "closed"))
+                        or (source["kind"], state)
+                        not in (("pr", "merged"), ("issue", "closed"), ("ticket", "resolved"))
                     ):
                         complete = False
                         break
-                    if facts.get("needs_team_reply"):
+                    if source["kind"] != "ticket" and facts.get("needs_team_reply"):
                         ended = parse_date(
                             facts.get("mergedAt" if source["kind"] == "pr" else "closed_at")
                         )
@@ -551,12 +555,15 @@ class Store:
                     task["id"],
                     "sync",
                     "completed",
-                    "Moved to Done: linked PRs merged and any linked issues closed",
+                    "Moved to Done: all linked work finished",
                     {
                         "changes": changes,
                         "sources": [s["url"] for s in sources],
                     },
                 )
+
+                completed.append(task["id"])
+        return completed
 
     def set_sla_resolved(self, task_id, source, resolved, *, actor="you"):
         """Change only the displayed source snapshot's local SLA resolution."""

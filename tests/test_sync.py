@@ -169,7 +169,7 @@ def test_support_pagination_resolved_followup_and_privacy(tmp_path):
     assert store.get(task_id)["sources"][0]["facts"]["status"] == "resolved"
     serialized = json.dumps(store.sources())
     assert "private" not in serialized and "secret" not in serialized
-    assert store.get(task_id)["status"] == "inbox"
+    assert store.get(task_id)["status"] == "done"
 
 
 def test_scope_failure_does_not_prevent_other_scope(tmp_path):
