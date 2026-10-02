@@ -46,16 +46,27 @@ AGENT_LABELS = {
 }
 
 
-def matches_search(task, query, source_labels=""):
-    query = query.strip().lower()
-    if query.startswith("#") and query[1:].isdecimal():
-        return task["id"] == int(query[1:])
-    labels = [source_labels, task.get("sla", {}).get("badge", "")]
+def matches_search(task, query, source_labels="", repositories=()):
+    labels = [source_labels, task.get("sla", {}).get("badge", ""), task["kind"].replace("_", " ")]
     if task.get("needs_first_touch"):
         labels.append("Needs first touch")
     labels.extend(f"Pi · {AGENT_LABELS[state]}" for state in task.get("agent_states", []))
-    text = " ".join([*(str(task[k]) for k in FIELDS), *labels]).lower()
-    return query in text or query in text.replace(" · ", " ")
+    words = " ".join([*(str(task[k]) for k in FIELDS), *labels, *repositories]).lower().split()
+    for term in query.lower().split():
+        if term.startswith("#") and term[1:].isdecimal():
+            if task["id"] != int(term[1:]):
+                return False
+        elif term in {"p0", "p1", "p2", "p3"}:
+            if task["priority"] != int(term[1]):
+                return False
+        elif not any(fuzzy_word_match(term, word) for word in words):
+            return False
+    return True
+
+
+def fuzzy_word_match(term, word):
+    letters = iter(word)
+    return all(letter in letters for letter in term)
 
 
 def needs_first_touch(task, sources):
@@ -758,8 +769,6 @@ class Board(App):
     #board-title { width: 20; content-align: left middle; text-style: bold; }
     #search { width: 1fr; }
     #toolbar Button { min-width: 10; margin-left: 1; }
-    #filters { height: 3; padding: 0 1; display: none; }
-    #filters Input, #filters Select { width: 1fr; }
     #board { height: 1fr; }
     .column { width: 1fr; min-width: 26; height: 100%; border: round $panel; margin: 0 1; }
     .column:focus-within { border: round $accent; }
@@ -803,7 +812,6 @@ class Board(App):
         Binding("p", "priority", "Priority"),
         Binding("r", "sync", "Refresh"),
         Binding("slash", "search", "Search"),
-        Binding("f", "filters", "Filters"),
         Binding("escape", "board", "Board", show=False),
     ]
 
@@ -823,23 +831,8 @@ class Board(App):
     def compose(self):
         with Horizontal(id="toolbar"):
             yield Static("Support hero", id="board-title")
-            yield Input(placeholder="Search cards, labels, or #number…", id="search")
-            yield Button("Filters", id="toggle-filters")
+            yield Input(placeholder="Search text, SDK, repo, type, P0–P3, or #number…", id="search")
             yield Button("Refresh", id="refresh")
-        with Horizontal(id="filters"):
-            yield Input(placeholder="SDK", id="sdk-filter")
-            yield Select(
-                [("All types", "all")] + [(k.replace("_", " "), k) for k in KINDS],
-                value="all",
-                allow_blank=False,
-                id="kind-filter",
-            )
-            yield Select(
-                [("All priorities", -1)] + [(f"P{i}", i) for i in range(4)],
-                value=-1,
-                allow_blank=False,
-                id="priority-filter",
-            )
         with HorizontalScroll(id="board"):
             for status, title in zip(STATUSES, TITLES):
                 yield Column(status, title)
@@ -873,10 +866,7 @@ class Board(App):
             await self.refresh_board()
 
     @on(Input.Changed, "#search")
-    @on(Input.Changed, "#sdk-filter")
-    @on(Select.Changed, "#kind-filter")
-    @on(Select.Changed, "#priority-filter")
-    async def filters_changed(self):
+    async def search_changed(self):
         await self.refresh_board()
 
     def current_list(self):
@@ -886,9 +876,6 @@ class Board(App):
         if not self.is_mounted or self.rebuilding or isinstance(self.screen, ModalScreen):
             return
         search = self.query_one("#search", Input).value.lower()
-        sdk = self.query_one("#sdk-filter", Input).value.lower()
-        kind = self.query_one("#kind-filter", Select).value
-        priority = self.query_one("#priority-filter", Select).value
         tasks = self.store.tasks()
         labels = {}
         sources = {}
@@ -905,10 +892,16 @@ class Board(App):
         tasks = [
             task
             for task in tasks
-            if matches_search(task, search, labels.get(task["id"], ""))
-            and sdk in task["sdk"].lower()
-            and (kind == "all" or task["kind"] == kind)
-            and (priority == -1 or task["priority"] == priority)
+            if matches_search(
+                task,
+                search,
+                labels.get(task["id"], ""),
+                [
+                    source["scope"].removeprefix("github:")
+                    for source in sources.get(task["id"], [])
+                    if source["scope"].startswith("github:")
+                ],
+            )
         ]
         tasks.sort(key=lambda task: work_key(task, task["sla"]))
         fingerprint = json.dumps([tasks, labels])
@@ -1055,11 +1048,6 @@ class Board(App):
                 self.action_board()
 
         self.push_screen(AddCard(status), saved)
-
-    @on(Button.Pressed, "#toggle-filters")
-    def action_filters(self):
-        filters = self.query_one("#filters")
-        filters.display = not filters.display
 
     def action_column(self, delta):
         self.column_index = (self.column_index + delta) % len(STATUSES)

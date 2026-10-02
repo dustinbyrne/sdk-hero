@@ -22,7 +22,7 @@ Run directly in a Herdr terminal, or use `uv run sdk-hero` without installing. E
 - **Click P0–P3** on a card to choose its priority (P0 highest).
 - **Delete** in card details opens a confirmation. It permanently removes the local card, links, and update history—not the external issue or ticket. Its sources stay excluded from automatic intake, including future rotations. Explicitly linking a source to a new card allows it to refresh again.
 - **+ Add card** in a column requires only a title. Enter adds it.
-- **Search** matches saved card text and visible labels, such as `needs first touch`, `GitHub`, or `done unread`. Enter `#6` for an exact card-number lookup. Search is case-insensitive and combines with the SDK, responsibility, and priority controls under **Filters**.
+- **Search** combines terms across card text, visible labels, SDKs, types, and linked GitHub repositories. For example, `python p1 issue` narrows the board to matching cards. Text matching is case-insensitive and fuzzy: `pythn` matches `python`. Every term must match, but terms can match different fields. `P0`–`P3` match the card's priority exactly, and `#6` matches its card number exactly; both can be combined with text. Use `/` to focus search.
 - **Refresh** on the board reads configured external sources in the background. **Refresh** in card details updates only that card's linked sources, preserves unsaved edits, and imports no other items. The details button is disabled when there are no linked sources or a refresh is already running.
 
 **Needs first touch** appears when a card links an open GitHub issue awaiting its first human team response. Bot replies do not count. Refresh clears it after a human team reply; later unanswered replies do not bring it back. PRs, support tickets, closed issues, and Done cards do not receive this label. It is derived from verified conversation facts, without changing card status or history.
@@ -53,7 +53,6 @@ Status checks match the recorded session path in the same Herdr server, so renam
 | n | Add a title-only card in current column |
 | Ctrl+S | Save card details |
 | / | Focus search |
-| f | Toggle filters |
 | r | Refresh sources |
 | Escape | Close dialog / return to board |
 | q | Quit |

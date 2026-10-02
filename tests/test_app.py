@@ -214,7 +214,7 @@ async def test_click_move_rejects_stale_revision_and_deleted_card(tmp_path):
         assert app.selected is None
 
 
-async def test_keyboard_navigation_filters_and_external_updates(tmp_path):
+async def test_keyboard_navigation_search_and_external_updates(tmp_path):
     store = Store(tmp_path / "board.db")
     first = store.create("Fix lifecycle", sdk="python", kind="issue")
     store.create("Review PR", sdk="node", kind="external_pr")
@@ -230,8 +230,9 @@ async def test_keyboard_navigation_filters_and_external_updates(tmp_path):
         await pilot.press("e")
         assert app.screen.query_one(TextArea).text == "Reproduce"
         await pilot.press("escape")
-        await pilot.click("#toggle-filters")
-        app.query_one("#sdk-filter", Input).value = "node"
+        await pilot.press("/")
+        assert app.query_one("#search", Input).has_focus
+        await pilot.press(*"node")
         await pilot.pause()
         assert len(app.query_one("#list-inbox", ListView).children) == 1
         assert len(app.query_one("#list-ready", ListView).children) == 0

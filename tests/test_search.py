@@ -1,4 +1,4 @@
-from textual.widgets import Input, Select
+from textual.widgets import Input
 
 from sdk_support_hero.app import Board, Card, matches_search
 from sdk_support_hero.store import Store
@@ -20,7 +20,24 @@ def test_search_matches_exact_card_number_and_visible_labels(tmp_path):
     assert not matches_search(task, "support", "GitHub")
 
 
-async def test_search_combines_filters_and_updates_derived_labels(tmp_path):
+def test_fuzzy_search_matches_terms_across_fields_and_repositories(tmp_path):
+    store = Store(tmp_path / "board.db")
+    task = store.get(store.create("Retry capture", sdk="python", kind="issue", priority=1))
+    repos = ["posthog/posthog-python", "example/linked-repo"]
+    for query in ("pythn P1 issu retry", "P1 python posthog/posthog-python", "lnkd-rep captr", ""):
+        assert matches_search(task, query, "GitHub", repos)
+    assert not matches_search(task, "python p0", "GitHub", repos)
+    assert not matches_search(task, "python absent", "GitHub", repos)
+    assert not matches_search(task, "python p1 absent/repo", "GitHub", repos)
+    assert matches_search(task, f"#{task['id']} pythn p1", repositories=repos)
+    assert not matches_search(task, "#99 pythn", repositories=repos)
+    task["description"] = "Investigate p0 reports"
+    assert not matches_search(task, "p0")
+    task["kind"] = "external_pr"
+    assert matches_search(task, "external pr")
+
+
+async def test_search_combines_terms_and_updates_derived_labels(tmp_path):
     store = Store(tmp_path / "board.db")
     source = parse_source("https://github.com/org/sdk/issues/1", {})
     facts = {"state": "open", "last_team_reply_at": None, "needs_team_reply": True}
@@ -42,10 +59,9 @@ async def test_search_combines_filters_and_updates_derived_labels(tmp_path):
         search.value = f"#{other}"
         await pilot.pause()
         assert [card.task_id for card in app.query(Card)] == [other]
-        app.query_one("#priority-filter", Select).value = 0
+        search.value = f"#{other} p0"
         await pilot.pause()
         assert not app.query(Card)
-        app.query_one("#priority-filter", Select).value = -1
-        search.value = "github"
+        search.value = "github org/sdk p2"
         await pilot.pause()
         assert [card.task_id for card in app.query(Card)] == [task_id]
