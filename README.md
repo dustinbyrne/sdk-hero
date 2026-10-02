@@ -54,7 +54,9 @@ sdk-hero init --repo owner/repository --support \
 ```
 
 These are placeholders. Use your PostHog instance's HTTPS origin and actual project/view settings. The selected view
-must have a role-based assignee filter. Refresh verifies its name and filter type before discovery.
+must have a role-based assignee filter. Refresh verifies its name and filter type before discovery, then imports all
+unresolved tickets assigned to that role, regardless of age or prior team replies. Existing cards and local dismissals
+are preserved.
 
 For an existing installation, edit the local configuration instead of rerunning `init`:
 

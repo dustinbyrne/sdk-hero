@@ -576,9 +576,7 @@ class Syncer:
         assignee = data.get("assignee") or {}
         facts["assignee"] = {key: assignee.get(key) for key in ("id", "type")}
         facts.update(self.ticket_conversation(ticket_id))
-        if discover and (
-            data["status"] not in ("new", "open", "pending", "on_hold") or not self.qualifies(facts)
-        ):
+        if discover and data["status"] not in ("new", "open", "pending", "on_hold"):
             return source["key"]
         # Keep customer bodies, names, emails and session context out of the database.
         title = f"Support ticket #{data['ticket_number']}"
@@ -594,7 +592,7 @@ class Syncer:
             raise SyncError("Support view name or assignment role changed; verify configuration")
         params = {
             "assignee": f"role:{assignee['id']}",
-            "date_from": self.since[:10],
+            "date_from": "all",
             "status": "new,open,pending,on_hold",
             "limit": 100,
         }

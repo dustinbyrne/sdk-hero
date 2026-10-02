@@ -164,7 +164,7 @@ def test_support_pagination_resolved_followup_and_privacy(tmp_path):
     assert not any(Syncer(store, config, runner).sync().values())
     assert [call["offset"] for call in list_calls] == [0, 100]
     assert all(call["status"] == "new,open,pending,on_hold" for call in list_calls)
-    assert all(call["date_from"] == "2026-09-26" for call in list_calls)
+    assert all(call["date_from"] == "all" for call in list_calls)
     assert all("view" not in call and "snoozed" not in call for call in list_calls)
     assert store.get(task_id)["sources"][0]["facts"]["status"] == "resolved"
     serialized = json.dumps(store.sources())

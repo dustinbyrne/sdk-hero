@@ -170,6 +170,9 @@ def test_support_intake_private_notes_ai_pagination_and_history(tmp_path):
         "internal": [message("customer", OLD), message("support", NEW, True)],
         "resolved": [message("customer", NEW)],
         "second-page": [message("customer", NEW), message("support", LATER)],
+        "pending": [message("customer", OLD), message("support", NEW)],
+        "on_hold": [message("customer", OLD)],
+        "empty": [],
     }
 
     def runner(argv, **kwargs):
@@ -181,7 +184,9 @@ def test_support_intake_private_notes_ai_pagination_and_history(tmp_path):
                 "filters": {"assignee": {"id": "role", "type": "role"}},
             }
         if tool == "conversations-tickets-list":
-            assert args["date_from"] == "2026-09-26"
+            assert args["date_from"] == "all"
+            assert args["assignee"] == "role:role"
+            assert args["status"] == "new,open,pending,on_hold"
             return {"results": [{"id": key} for key in threads], "next": None}
         key = args["id"]
         if tool == "conversations-tickets-messages-retrieve":
@@ -195,14 +200,14 @@ def test_support_intake_private_notes_ai_pagination_and_history(tmp_path):
         return {
             "id": key,
             "ticket_number": key,
-            "status": "resolved" if key == "resolved" else "open",
+            "status": key if key in {"resolved", "pending", "on_hold"} else "open",
             "message_count": len(threads[key]),
             "_posthogUrl": f"https://support.example.com/project/4242/support/tickets/{key}",
         }
 
     syncer = Syncer(store, {"repos": [], "support": support}, runner, window_start=START)
     assert not any(syncer.sync().values())
-    assert {s["remote_id"] for s in store.sources()} == {"new", "private", "ai"}
+    assert {s["remote_id"] for s in store.sources()} == set(threads) - {"resolved"}
     card = next(s["task_id"] for s in store.sources() if s["remote_id"] == "new")
     count = len(store.history(card))
     assert not any(syncer.sync().values())
@@ -212,6 +217,16 @@ def test_support_intake_private_notes_ai_pagination_and_history(tmp_path):
     assert len(store.history(card)) == count + 1
     assert store.get(card)["sources"][0]["facts"]["needs_team_reply"] is False
     assert "SECRET" not in json.dumps(store.get(card))
+    answered = next(s["task_id"] for s in store.sources() if s["remote_id"] == "answered")
+    store.update(
+        answered, status="waiting", title="Local plan", description="Await diagnostics", priority=1
+    )
+    deleted = next(s["task_id"] for s in store.sources() if s["remote_id"] == "old")
+    store.delete(deleted, expected_revision=store.get(deleted)["revision"])
+    before = store.get(answered)
+    assert not any(syncer.sync().values())
+    assert store.get(answered) == before
+    assert "old" not in {s["remote_id"] for s in store.sources()}
 
 
 @pytest.mark.parametrize("bad", [None, "not-a-date", "2026-09-28"])
